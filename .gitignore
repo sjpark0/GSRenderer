@@ -1,0 +1,17 @@
+*.pyc
+.vscode
+output
+build
+diff_rasterization/diff_rast.egg-info
+diff_rasterization/dist
+tensorboard_3d
+screenshots
+data/
+submodules/
+*.dll
+*.exe
+colmap_tmp
+PlenopticServer1
+PlenopticServer2
+docker/lib
+colmap_tmp/
