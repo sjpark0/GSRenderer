@@ -33,7 +33,6 @@ def multithread_write(image_list, path):
         if status == False:
             write_image(image_list[index], index, path)
     
-to8b = lambda x : (255*np.clip(x.cpu().numpy(),0,1)).astype(np.uint8)
 def render_set(out_path, views, gaussians, background):    
     makedirs(out_path, exist_ok=True)
     render_list = []
