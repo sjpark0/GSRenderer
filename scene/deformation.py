@@ -3,16 +3,39 @@ import math
 import os
 import time
 from tkinter import W
-
+from typing import NamedTuple
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
-from utils.graphics_utils import apply_rotation, batch_quaternion_multiply
+from utils.graphics_utils import batch_quaternion_multiply
 from scene.hexplane import HexPlaneField
 from scene.grid import DenseGrid
 # from scene.grid import HashHexPlane
+class DeformationParam(NamedTuple):
+    net_width: int
+    timebase_pe: int
+    defor_depth: int
+    posebase_pe: int
+    scale_rotation_pe: int
+    opacity_pe: int
+    timenet_width: int
+    timenet_output: int
+    grid_pe: int
+    no_grid: bool
+    bounds: float
+    kplanes_config: dict
+    multires: list
+    empty_voxel: bool
+    static_mlp: bool
+    no_dx: bool
+    no_ds: bool
+    no_dr: bool
+    no_do: bool
+    no_dshs: bool
+    apply_rotation: bool
+
 class Deformation(nn.Module):
     def __init__(self, D=8, W=256, input_ch=27, input_ch_time=9, grid_pe=0, skips=[], args=None):
         super(Deformation, self).__init__()
@@ -84,7 +107,7 @@ class Deformation(nn.Module):
     @property
     def get_empty_ratio(self):
         return self.ratio
-    def forward(self, rays_pts_emb, scales_emb=None, rotations_emb=None, opacity = None,shs_emb=None, time_feature=None, time_emb=None):
+    def forward(self, rays_pts_emb, scales_emb=None, rotations_emb=None, opacity = None,shs_emb=None, time_feature=None, time_emb=None):        
         if time_emb is None:
             return self.forward_static(rays_pts_emb[:,:3])
         else:
@@ -158,6 +181,8 @@ class Deformation(nn.Module):
             if  "grid" in name:
                 parameter_list.append(param)
         return parameter_list
+
+    
 class deform_network(nn.Module):
     def __init__(self, args) :
         super(deform_network, self).__init__()
@@ -182,7 +207,7 @@ class deform_network(nn.Module):
         self.apply(initialize_weights)
         # print(self)
 
-    def forward(self, point, scales=None, rotations=None, opacity=None, shs=None, times_sel=None):
+    def forward(self, point, scales=None, rotations=None, opacity=None, shs=None, times_sel=None):        
         return self.forward_dynamic(point, scales, rotations, opacity, shs, times_sel)
     @property
     def get_aabb(self):

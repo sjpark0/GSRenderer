@@ -1,7 +1,7 @@
 import itertools
 import logging as log
 from typing import Optional, Union, List, Dict, Sequence, Iterable, Collection, Callable
-
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -150,10 +150,11 @@ class HexPlaneField(nn.Module):
     def get_aabb(self):
         return self.aabb[0], self.aabb[1]
     def set_aabb(self,xyz_max, xyz_min):
-        aabb = torch.tensor([
-            xyz_max,
-            xyz_min
-        ],dtype=torch.float32)
+        aabb = torch.tensor(np.array([xyz_max, xyz_min]), dtype=torch.float32)
+        #aabb = torch.tensor([
+        #    xyz_max,
+        #    xyz_min
+        #],dtype=torch.float32)
         self.aabb = nn.Parameter(aabb,requires_grad=False)
         print("Voxel Plane: set aabb=",self.aabb)
 

@@ -1,23 +1,19 @@
-from utils.graphics_utils import getWorld2View2, focal2fov, fov2focal
 import numpy as np
-from typing import NamedTuple
 import os
-from PIL import Image
-from torchvision import transforms as Trans
+import torch
 
-class CameraInfo(NamedTuple):
-    uid: int
-    R: np.array
-    T: np.array
-    FovY: np.array
-    FovX: np.array
-    image: np.array
-    image_path: str
-    image_name: str
-    width: int
-    height: int
-    time : float
-    mask: np.array
+from utils.graphics_utils import getWorld2View2, getProjectionMatrix, focal2fov
+from typing import NamedTuple
+
+class ViewInfo(NamedTuple):
+    uid : int
+    height : int    
+    width : int
+    FovY: float
+    FovX: float
+    world_view_transform: torch.Tensor
+    full_proj_transform: torch.Tensor
+    camera_center: torch.Tensor
 
 def normalize(v):
     """Normalize a vector."""
@@ -148,33 +144,26 @@ def get_axis(c2ws_all, near_fars, axis, focal, view_range, N_views=120):
     render_poses = render_path_axis_param(c2w, up, axis, shrink_factor*rads[axis], focal, view_range, N=N_views)
     return np.stack(render_poses)
 
-def get_video_cam_infos_x_axis(cam_extrinsics, cam_intrinsics, datadir, focal, view_range, time):
+def get_video_cam_infos_x_axis(cam_extrinsics, cam_intrinsics, datadir, focal, view_range, N_views):
     height=cam_intrinsics[1].height
     width=cam_intrinsics[1].width
     FovY = focal2fov(cam_intrinsics[1].params[0], height)
     FovX = focal2fov(cam_intrinsics[1].params[0], width)
     
     poses_arr = np.load(os.path.join(datadir, "poses_bounds_scview.npy"))
+    
     poses = poses_arr[:, :-2].reshape([-1, 3, 5])  # (N_cams, 3, 5)
     near_fars = poses_arr[:, -2:]
-    #poses = np.concatenate([poses[..., 1:2], -poses[..., :1], poses[..., 2:4]], -1)
     
-    N_views = 49
-    #focal = 100
-    #view_range = 1.0
     val_poses = get_axis(poses, near_fars, 1, focal, view_range, N_views=N_views)
-    val_poses = np.concatenate([val_poses[...,1:2], 
-                                -val_poses[...,0:1], 
-                                val_poses[...,2:]], -1)
-    cameras = []
-    len_poses = len(val_poses)
-    times = [i/len_poses for i in range(len_poses)]
-    image = Image.open("data/frame_00001.jpg")
-    image = Trans.ToTensor()(image)
+    val_poses = np.concatenate([val_poses[...,1:2], -val_poses[...,0:1], val_poses[...,2:]], -1)
+    views = []
+    trans = np.array([0.0, 0.0, 0.0])
+    scale = 1.0
+    zfar = 100.0
+    znear = 0.01
+
     for idx, p in enumerate(val_poses):
-        image_path = None
-        image_name = f"{idx}"
-        #time = times[idx]
         pose = np.eye(4)
         pose[:3,:] = p[:3,:]
         R = pose[:3,:3]
@@ -182,7 +171,9 @@ def get_video_cam_infos_x_axis(cam_extrinsics, cam_intrinsics, datadir, focal, v
         R = - R
         R[:,0] = -R[:,0]
         T = -pose[:3,3].dot(R)
-        cameras.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                            image_path=image_path, image_name=image_name, width=image.shape[2], height=image.shape[1],
-                            time = time, mask=None))
-    return cameras
+        world_view_transform = torch.tensor(getWorld2View2(R, T, trans, scale)).transpose(0, 1)
+        projection_matrix = getProjectionMatrix(znear=znear, zfar=zfar, fovX=FovX, fovY=FovY).transpose(0,1)
+        full_proj_transform = (world_view_transform.unsqueeze(0).bmm(projection_matrix.unsqueeze(0))).squeeze(0)
+        camera_center = world_view_transform.inverse()[3, :3]
+        views.append(ViewInfo(uid=idx, height=height, width=width, FovY=FovY, FovX=FovX, world_view_transform=world_view_transform, full_proj_transform=full_proj_transform, camera_center=camera_center))
+    return views

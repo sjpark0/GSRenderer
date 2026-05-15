@@ -1,21 +1,16 @@
 import imageio
 import numpy as np
-import torch
+import SJRendererLKG
 import os
-import cv2
-from tqdm import tqdm
-from os import makedirs
-from gaussian_renderer import render
 import torchvision
+import concurrent.futures
+
 from utils.general_utils import safe_state
 from argparse import ArgumentParser
-from arguments import ModelParams, get_combined_args, ModelHiddenParams
-from gaussian_renderer import GaussianModel
+from os import makedirs
 from time import time
-import concurrent.futures
-from scene.scene_info import readSCViewinfo
-from scene import Scene
-
+from utils.params_utils import merge_hparams
+from scene.deformation import DeformationParam
 def multithread_write(image_list, path):
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=None)
     def write_image(image, count, path):
@@ -32,53 +27,36 @@ def multithread_write(image_list, path):
     for index, status in enumerate(tasks):
         if status == False:
             write_image(image_list[index], index, path)
-    
-def render_set(out_path, views, gaussians, background):    
-    makedirs(out_path, exist_ok=True)
-    render_list = []
-    print("point nums:",gaussians._xyz.shape[0])
-    for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
-        if idx == 0:time1 = time()
-        
-        rendering = render(view, gaussians, background)
-        render_list.append(rendering)
-    
-    time2=time()
-    print("FPS:",(len(views)-1)/(time2-time1))    
-    multithread_write(render_list, out_path)
 
-    
-def render_sets(model_path, hyperparam, out_path, focal : float, view_range : float):
-    with torch.no_grad():
-        gaussians = GaussianModel(3, hyperparam)
-        scene_info = readSCViewinfo(model_path, focal, view_range)
-        scene = Scene(scene_info, gaussians, focal=focal, view_range=view_range)
-        
-        bg_color = [0, 0, 0]
-        background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+def merge_hparams1(args, config):    
+    for key, value in config.items():
+        if hasattr(args, key):
+            setattr(args, key, value)
 
-        #for idx, video_camera in enumerate(scene.getVideoCameras()):
-        #    render_set(out_path,video_camera,gaussians,pipeline,background,cam_type)
-        render_set(out_path,scene.video_camera[0],gaussians,background)
+    return args
 
 if __name__ == "__main__":
-    # Set up command line argument parser
-    parser = ArgumentParser(description="Testing script parameters")
-    model = ModelParams(parser, sentinel=True)
-    hyperparam = ModelHiddenParams(parser)
-    args = get_combined_args(parser)
-    #print("Rendering " , args.model_path)
-    if args.configs:
-        import mmcv
-        from utils.params_utils import merge_hparams
-        config = mmcv.Config.fromfile(args.configs)
-        args = merge_hparams(args, config)
-    # Initialize system state (RNG)
-    safe_state(args.quiet)
+    # Set up command line argument parser    
+    param = DeformationParam(net_width=128, timebase_pe=4, defor_depth=1, posebase_pe=10, scale_rotation_pe=2, opacity_pe=2, 
+                             timenet_width=64, timenet_output=32, grid_pe=0, no_grid=False, bounds=1.6, 
+                             kplanes_config={'grid_dimensions': 2, 'input_coordinate_dim': 4, 'output_coordinate_dim': 16, 'resolution': [64, 64, 64, 150]},
+                             multires=[1,2], empty_voxel=False, static_mlp=False, no_dx=False, no_ds=False, no_dr=False, no_do=False, no_dshs=False, apply_rotation=False)
     
-    render_sets("data", hyperparam.extract(args), "data/output", 80, 1.0)
+    model_path = "data"
+    out_path = "data/output"
+    frame_num = 50
+    total_frame = 100
+    num_views = 49
+    focal = 80.0
+    view_range = 1.0
 
-
-#parser = ArgumentParser(description="Testing script parameters")
-#hyperparam = ModelHiddenParams(parser)
-#render_sets("data", "data/output", 1, hyperparam, 80.0, 1.0)
+    
+    makedirs(os.path.join(out_path, str(frame_num)), exist_ok=True)
+    
+    renderer = SJRendererLKG.SJRendererLKG(model_path, param, out_path, focal, view_range, num_views, total_frame)
+    time1 = time()
+    render_list = renderer.rendering(50)    
+    time2 = time()
+    print("FPS:",(num_views/(time2-time1)))
+        
+    multithread_write(render_list, os.path.join(out_path, str(frame_num)))
