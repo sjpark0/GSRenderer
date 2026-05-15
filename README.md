@@ -1,1 +1,1 @@
-# GSRenderer
+# SJGSRenderer
