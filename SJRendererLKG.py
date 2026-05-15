@@ -5,27 +5,27 @@ import os
 import numpy as np
 
 from tqdm import tqdm
-from scene.gaussian_model import GaussianModel
-from scene.pose import get_video_cam_infos_x_axis
-from scene.colmap_loader import read_extrinsics_binary, read_intrinsics_binary
+from gaussian_model import GaussianModel
+from pose import get_video_cam_infos_x_axis
+from colmap_loader import read_extrinsics_binary, read_intrinsics_binary
 
 from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 class SJRendererLKG:
-    def __init__(self, model_path, hyperparam, out_path, focal, view_range, num_views, total_frame):
+    def __init__(self, model_path, out_path, focal, view_range, num_views, total_frame):
         self.model_path = model_path
-        self.hyperparam = hyperparam
         self.out_path = out_path
         self.focal = focal
         self.view_range = view_range
         self.total_frame = total_frame
         self.num_views = num_views
         with torch.no_grad():
-            self.gaussians = GaussianModel(3, self.hyperparam)
+            self.gaussians = GaussianModel(3)
             self.gaussians.load_gaussian_model(self.model_path)
             self.video_camera = self.readViewParam()
             bg_color = [0, 0, 0]
             self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
-            
+            self.render(self.video_camera[0]) #dummy rendering
+
     def render(self, viewpoint_camera, frame = 0.0):
         """
         Render the scene. 

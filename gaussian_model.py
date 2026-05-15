@@ -14,9 +14,56 @@ import numpy as np
 from torch import nn
 import os
 from plyfile import PlyData
-from utils.graphics_utils import BasicPointCloud
-from utils.general_utils import strip_symmetric, build_scaling_rotation, inverse_sigmoid
-from scene.deformation import deform_network
+
+def strip_lowerdiag(L):
+    uncertainty = torch.zeros((L.shape[0], 6), dtype=torch.float, device="cuda")
+
+    uncertainty[:, 0] = L[:, 0, 0]
+    uncertainty[:, 1] = L[:, 0, 1]
+    uncertainty[:, 2] = L[:, 0, 2]
+    uncertainty[:, 3] = L[:, 1, 1]
+    uncertainty[:, 4] = L[:, 1, 2]
+    uncertainty[:, 5] = L[:, 2, 2]
+    return uncertainty
+
+def build_rotation(r):
+    norm = torch.sqrt(r[:,0]*r[:,0] + r[:,1]*r[:,1] + r[:,2]*r[:,2] + r[:,3]*r[:,3])
+
+    q = r / norm[:, None]
+
+    R = torch.zeros((q.size(0), 3, 3), device='cuda')
+
+    r = q[:, 0]
+    x = q[:, 1]
+    y = q[:, 2]
+    z = q[:, 3]
+
+    R[:, 0, 0] = 1 - 2 * (y*y + z*z)
+    R[:, 0, 1] = 2 * (x*y - r*z)
+    R[:, 0, 2] = 2 * (x*z + r*y)
+    R[:, 1, 0] = 2 * (x*y + r*z)
+    R[:, 1, 1] = 1 - 2 * (x*x + z*z)
+    R[:, 1, 2] = 2 * (y*z - r*x)
+    R[:, 2, 0] = 2 * (x*z - r*y)
+    R[:, 2, 1] = 2 * (y*z + r*x)
+    R[:, 2, 2] = 1 - 2 * (x*x + y*y)
+    return R
+
+def build_scaling_rotation(s, r):
+    L = torch.zeros((s.shape[0], 3, 3), dtype=torch.float, device="cuda")
+    R = build_rotation(r)
+
+    L[:,0,0] = s[:,0]
+    L[:,1,1] = s[:,1]
+    L[:,2,2] = s[:,2]
+
+    L = R @ L
+    return L
+
+def inverse_sigmoid(x):
+    return torch.log(x/(1-x))
+def strip_symmetric(sym):
+    return strip_lowerdiag(sym)
 
 class GaussianModel:
 
@@ -38,11 +85,10 @@ class GaussianModel:
         self.rotation_activation = torch.nn.functional.normalize
 
 
-    def __init__(self, sh_degree : int, args):
+    def __init__(self, sh_degree : int):
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree  
         self._xyz = torch.empty(0)
-        self._deformation = deform_network(args)
         self._features_dc = torch.empty(0)
         self._features_rest = torch.empty(0)
         self._scaling = torch.empty(0)
@@ -54,7 +100,6 @@ class GaussianModel:
         self.optimizer = None
         self.percent_dense = 0
         self.spatial_lr_scale = 0
-        self._deformation_table = torch.empty(0)
         self.setup_functions()
 
     @property
@@ -81,20 +126,9 @@ class GaussianModel:
 
     def load_model(self, path):
         print("loading model from exists{}".format(path))
-        weight_dict = torch.load(os.path.join(path,"deformation.pth"),map_location="cuda")
-        self._deformation.load_state_dict(weight_dict)
-        self._deformation = self._deformation.to("cuda")
-        
-        #self._deformation = torch.jit.load(os.path.join(path, "traced_model.pt")).to("cuda")
-        self._deformation_table = torch.gt(torch.ones((self.get_xyz.shape[0]),device="cuda"),0)
-        self._deformation_accum = torch.zeros((self.get_xyz.shape[0],3),device="cuda")
-        if os.path.exists(os.path.join(path, "deformation_table.pth")):
-            self._deformation_table = torch.load(os.path.join(path, "deformation_table.pth"),map_location="cuda")
-        if os.path.exists(os.path.join(path, "deformation_accum.pth")):
-            self._deformation_accum = torch.load(os.path.join(path, "deformation_accum.pth"),map_location="cuda")
+        self._deformation = torch.jit.load(os.path.join(path, "traced_model.pt")).to("cuda")
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
-        # print(self._deformation.deformation_net.grid.)
-    
+        
     def load_ply(self, path):
         plydata = PlyData.read(path)
 
@@ -138,16 +172,6 @@ class GaussianModel:
         self.active_sh_degree = self.max_sh_degree
 
     def load_gaussian_model(self, path):
-        ply_path = os.path.join(path, "points3D_scview.ply")
-        pcd = self.fetchPly(ply_path)
-        #self._deformation.deformation_net.set_aabb(pcd.points.max(axis=0),pcd.points.min(axis=0))
         self.load_ply(os.path.join(path, "point_cloud.ply"))
         self.load_model(path)        
         
-    def fetchPly(self, path):
-        plydata = PlyData.read(path)
-        vertices = plydata['vertex']
-        positions = np.vstack([vertices['x'], vertices['y'], vertices['z']]).T
-        colors = np.vstack([vertices['red'], vertices['green'], vertices['blue']]).T / 255.0
-        normals = np.vstack([vertices['nx'], vertices['ny'], vertices['nz']]).T
-        return BasicPointCloud(points=positions, colors=colors, normals=normals)
