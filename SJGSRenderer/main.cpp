@@ -1,5 +1,11 @@
-﻿#include <algorithm>
+﻿
 
+#include <c10/cuda/CUDAGuard.h>
+#include <c10/cuda/CUDAStream.h>
+#include <torch/torch.h>
+#include <torch/script.h>
+
+#include <algorithm>
 #include <cuda_runtime.h>
 #define TINYPLY_IMPLEMENTATION
 #include "tinyply.h"
@@ -8,8 +14,12 @@
 #include "SJGSRenderer.h"
 #include "SJGSRendererLKG.h"
 #include "SJGSLoader.h"
-// ---- 간단한 CUDA 체크 ----
+
+#include <iostream>
+#include <Windows.h> 
+
 using namespace cv;
+using namespace std;
 #define CUDA_CHECK(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 
 // C++14용 clamp
@@ -92,9 +102,48 @@ int main4(int argc, char** argv)
 
     return 0;
 }
+
+int torchTest() 
+{
+    LoadLibraryA("torch_cuda.dll");
+    char model_dir[] = "..\\model_pt";
+    char filename[1024];
+    c10::DeviceIndex GPU_NUM = 0;
+    c10::cuda::set_device(GPU_NUM);
+    cout << "Available GPU : " << torch::cuda::is_available() << endl;
+
+    torch::Device device = { at::kCUDA, GPU_NUM };
+    if (!torch::cuda::is_available()) {
+        device = { at::kCPU };
+        cout << "CPU mode" << endl;
+    }
+    else {
+        cout << "CUDA mode" << endl;
+    }
+    torch::NoGradGuard nograd;
+
+
+    //torch::jit::FusionStrategy strat = { {torch::jit::FusionBehavior::DYNAMIC, 1} };
+    //torch::jit::setFusionStrategy(strat);
+
+    try {
+        printf("here1!!\n");
+        torch::jit::Module module = torch::jit::load("..\\model_pt\\traced_model.pt", device);
+        module.eval();
+        printf("here1!!\n");
+
+    }
+    catch (const c10::Error& e) {
+        printf("here2!!\n");
+        cout << e.msg() << endl;
+    }
+    cout << "model loaded" << endl;
+
+}
+
 int main(int argc, char** argv)
 {
-    //main2(argc, argv);
-    main4(argc, argv);
+    //main4(argc, argv);
+    torchTest();
 
 }
