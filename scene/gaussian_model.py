@@ -14,7 +14,6 @@ import numpy as np
 from torch import nn
 import os
 from plyfile import PlyData
-from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation, inverse_sigmoid
 from scene.deformation import deform_network
 
@@ -85,7 +84,6 @@ class GaussianModel:
         self._deformation.load_state_dict(weight_dict)
         self._deformation = self._deformation.to("cuda")
         
-        #self._deformation = torch.jit.load(os.path.join(path, "traced_model.pt")).to("cuda")
         self._deformation_table = torch.gt(torch.ones((self.get_xyz.shape[0]),device="cuda"),0)
         self._deformation_accum = torch.zeros((self.get_xyz.shape[0],3),device="cuda")
         if os.path.exists(os.path.join(path, "deformation_table.pth")):
@@ -138,16 +136,5 @@ class GaussianModel:
         self.active_sh_degree = self.max_sh_degree
 
     def load_gaussian_model(self, path):
-        ply_path = os.path.join(path, "points3D_scview.ply")
-        pcd = self.fetchPly(ply_path)
-        #self._deformation.deformation_net.set_aabb(pcd.points.max(axis=0),pcd.points.min(axis=0))
         self.load_ply(os.path.join(path, "point_cloud.ply"))
         self.load_model(path)        
-        
-    def fetchPly(self, path):
-        plydata = PlyData.read(path)
-        vertices = plydata['vertex']
-        positions = np.vstack([vertices['x'], vertices['y'], vertices['z']]).T
-        colors = np.vstack([vertices['red'], vertices['green'], vertices['blue']]).T / 255.0
-        normals = np.vstack([vertices['nx'], vertices['ny'], vertices['nz']]).T
-        return BasicPointCloud(points=positions, colors=colors, normals=normals)

@@ -10,7 +10,7 @@ from argparse import ArgumentParser
 from os import makedirs
 from time import time
 from utils.params_utils import merge_hparams
-from scene.deformation import DeformationParam
+from arguments import ModelParams, PipelineParams, get_combined_args, ModelHiddenParams
 def multithread_write(image_list, path):
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=None)
     def write_image(image, count, path):
@@ -37,11 +37,19 @@ def merge_hparams1(args, config):
 
 if __name__ == "__main__":
     # Set up command line argument parser    
-    param = DeformationParam(net_width=128, timebase_pe=4, defor_depth=1, posebase_pe=10, scale_rotation_pe=2, opacity_pe=2, 
-                             timenet_width=64, timenet_output=32, grid_pe=0, no_grid=False, bounds=1.6, 
-                             kplanes_config={'grid_dimensions': 2, 'input_coordinate_dim': 4, 'output_coordinate_dim': 16, 'resolution': [64, 64, 64, 150]},
-                             multires=[1,2], empty_voxel=False, static_mlp=False, no_dx=False, no_ds=False, no_dr=False, no_do=False, no_dshs=False, apply_rotation=False)
-    
+    parser = ArgumentParser(description="Testing script parameters")
+    model = ModelParams(parser, sentinel=True)
+    pipeline = PipelineParams(parser)
+    hyperparam = ModelHiddenParams(parser)
+    args = get_combined_args(parser)
+    if args.configs:
+        import mmcv
+        from utils.params_utils import merge_hparams
+        config = mmcv.Config.fromfile(args.configs)
+        args = merge_hparams(args, config)
+    # Initialize system state (RNG)
+    safe_state(args.quiet)
+
     model_path = "data"
     out_path = "data/output"
     frame_num = 50
@@ -53,7 +61,7 @@ if __name__ == "__main__":
     
     makedirs(os.path.join(out_path, str(frame_num)), exist_ok=True)
     
-    renderer = SJRendererLKG.SJRendererLKG(model_path, param, out_path, focal, view_range, num_views, total_frame)
+    renderer = SJRendererLKG.SJRendererLKG(model_path, hyperparam.extract(args), out_path, focal, view_range, num_views, total_frame)
     time1 = time()
     render_list = renderer.rendering(50)    
     time2 = time()
